@@ -1,0 +1,1 @@
+.env\n.env.*\n!.env.example\n.vercel\nnode_modules\n.DS_Store\n
