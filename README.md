@@ -1,0 +1,1 @@
+# DINAMIZE7OS
