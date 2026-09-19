@@ -45,7 +45,7 @@ function inviteLinkModal(title,url,description){
 async function createInviteModal(opts){
   const isClient=opts.invite_type==='client';
   const fields=
-    '<div class="notice">A pessoa abrirá um link personalizado, criará a própria senha e entrará automaticamente no sistema.</div>'+
+    '<div class="notice">A pessoa abrirá o convite, aceitará, enviará o e-mail para aprovação e só depois você libera o acesso.</div>'+
     '<div class="field"><label>Nome da pessoa (opcional)</label><input name="full_name" value="'+esc(opts.full_name||'')+'"></div>'+
     '<div class="field"><label>Restringir a um e-mail (opcional)</label><input name="restricted_email" type="email" value="'+esc(opts.email||'')+'" placeholder="Deixe vazio para qualquer e-mail"></div>'+
     '<div class="field"><label>Perfil de acesso</label><select name="role">'+
@@ -65,7 +65,7 @@ async function createInviteModal(opts){
       full_name:d.full_name||null,
       expires_days:Number(d.expires_days||7)
     }});
-    setTimeout(()=>inviteLinkModal('Convite criado',out.invite_url,'Envie este link para a pessoa. Ele é individual e expira automaticamente.'),50);
+    setTimeout(()=>inviteLinkModal('Convite criado',out.invite_url,'Envie este link para a pessoa. Depois que ela aceitar e informar o e-mail, a solicitação aparecerá na sua Caixa de entrada.'),50);
   });
 }
 
@@ -77,20 +77,36 @@ async function inviteLanding(token){
     const message=info.invite_type==='client'
       ? 'Você foi convidado para participar do sistema de gerenciamento da '+company+'.'
       : 'Você foi convidado para participar da equipe da '+company+'.';
-    app.innerHTML='<div class="invitewrap"><div class="card invitecard"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><div class="eyebrow" style="margin-top:24px">Convite especial</div><h1>Parabéns, você foi convidado.</h1><p class="mut" style="font-size:16px;line-height:1.55">'+esc(message)+'</p><form id="accept-invite"><div class="field"><label>Seu nome</label><input name="full_name" value="'+esc(info.full_name||'')+'" required></div><div class="field"><label>E-mail</label><input name="email" type="email" value="'+esc(info.restricted_email||'')+'" '+(info.restricted_email?'readonly':'')+' required></div><div class="field"><label>Crie sua senha</label><input name="password" type="password" minlength="8" required></div><p class="mut" style="font-size:12px">Se você já tiver uma conta Dinamize7OS, use a senha existente desse e-mail.</p><button class="btn blue" style="width:100%">Criar acesso e entrar</button></form></div></div>';
-    document.getElementById('accept-invite').onsubmit=async ev=>{
+
+    app.innerHTML='<div class="invitewrap"><div class="card invitecard"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><div class="eyebrow" style="margin-top:24px">Convite especial</div><h1>Parabéns, você foi convidado.</h1><p class="mut" style="font-size:16px;line-height:1.55">'+esc(message)+'</p><div id="invite-choice" class="actions" style="margin-top:22px"><button class="btn blue" id="accept-choice">Aceitar convite</button><button class="btn ghost" id="decline-choice">Recusar</button></div><div id="invite-form-wrap" style="display:none;margin-top:18px"><div class="notice">Informe seus dados. O acesso só será liberado depois que um administrador aprovar sua solicitação.</div><form id="request-access"><div class="field"><label>Seu nome</label><input name="full_name" value="'+esc(info.full_name||'')+'" required></div><div class="field"><label>Seu e-mail</label><input name="email" type="email" value="'+esc(info.restricted_email||'')+'" '+(info.restricted_email?'readonly':'')+' required></div><button class="btn blue" style="width:100%">Enviar solicitação</button></form></div></div></div>';
+
+    document.getElementById('accept-choice').onclick=()=>{
+      document.getElementById('invite-choice').style.display='none';
+      document.getElementById('invite-form-wrap').style.display='block';
+    };
+
+    document.getElementById('decline-choice').onclick=()=>{
+      app.innerHTML='<div class="invitewrap"><div class="card invitecard"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><h1>Convite recusado</h1><p class="mut">Nenhum acesso foi criado.</p></div></div>';
+    };
+
+    document.getElementById('request-access').onsubmit=async ev=>{
       ev.preventDefault();
-      const f=new FormData(ev.target);
+      const form=new FormData(ev.target);
       const btn=ev.target.querySelector('button');
-      btn.disabled=true;btn.textContent='Criando acesso...';
+      btn.disabled=true;
+      btn.textContent='Enviando...';
       try{
-        const out=await api('/functions/v1/accept-invite',{method:'POST',body:{token,email:f.get('email'),password:f.get('password'),full_name:f.get('full_name')},auth:false});
-        saveSession(out.session);
-        history.replaceState({},'', '/');
-        Object.assign(state,{user:null,profile:null,agencyMember:null,clientMember:null,agency:null,client:null,tab:'dashboard'});
-        await loadIdentity();
-        render();
-      }catch(err){toast(err.message);btn.disabled=false;btn.textContent='Criar acesso e entrar'}
+        const out=await api('/functions/v1/request-invite-access',{
+          method:'POST',
+          body:{token,email:form.get('email'),full_name:form.get('full_name')},
+          auth:false
+        });
+        app.innerHTML='<div class="invitewrap"><div class="card invitecard"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><div class="eyebrow" style="margin-top:24px">Solicitação enviada</div><h1>Agora é só aguardar a aprovação.</h1><p class="mut" style="font-size:16px;line-height:1.55">Seu e-mail foi enviado para a equipe responsável. Depois da aprovação, você receberá os dados necessários para entrar no sistema.</p></div></div>';
+      }catch(err){
+        toast(err.message);
+        btn.disabled=false;
+        btn.textContent='Enviar solicitação';
+      }
     };
   }catch(err){
     app.innerHTML='<div class="invitewrap"><div class="card invitecard"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><h1>Convite indisponível</h1><p class="mut">'+esc(err.message)+'</p><a class="btn blue" style="display:inline-block;text-decoration:none;margin-top:12px" href="/">Ir para o login</a></div></div>';
@@ -102,12 +118,12 @@ function authView(){app.innerHTML='<div class="auth"><section class="hero"><div 
 document.getElementById('login').onsubmit=async(ev)=>{ev.preventDefault();const f=new FormData(ev.target);try{const d=await api('/auth/v1/token?grant_type=password',{method:'POST',body:{email:f.get('email'),password:f.get('password')},auth:false});saveSession(d);await loadIdentity();render()}catch(err){toast(err.message)}};
 document.getElementById('first').onclick=()=>formModal('Primeiro administrador','<div class="notice">Use somente para configurar o primeiro proprietário.</div><div class="field"><label>Nome</label><input name="name" required></div><div class="field"><label>E-mail</label><input name="email" type="email" required></div><div class="field"><label>Senha</label><input name="password" type="password" minlength="8" required></div>',async d=>{const r=await api('/auth/v1/signup',{method:'POST',body:{email:d.email,password:d.password,data:{full_name:d.name}},auth:false});if(r.access_token){saveSession(r);await loadIdentity();render()}else toast('Conta criada. Confirme o e-mail e faça login.')})}
 function setup(){app.innerHTML='<div class="authside" style="min-height:100vh"><div class="card login"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><h2>Configuração inicial</h2><p class="mut">Sua conta ainda não pertence à agência.</p><div class="notice">Se você é o primeiro administrador, assuma a propriedade agora. Isso só funciona uma vez.</div><button class="btn blue" id="claim" style="width:100%">Assumir como proprietário</button></div></div>';document.getElementById('claim').onclick=async()=>{try{await api('/functions/v1/claim-owner',{method:'POST',body:{full_name:state.profile.full_name}});await loadIdentity();render()}catch(err){toast(err.message)}}}
-const nav=()=>state.agencyMember?[['dashboard','Visão geral'],['clients','Clientes'],['agenda','Agenda'],['content','Cronograma'],['team','Equipe']]:[['home','Início'],['approvals','Aprovações'],['calendar','Cronograma']];
+const nav=()=>state.agencyMember?[['dashboard','Visão geral'],['clients','Clientes'],['agenda','Agenda'],['content','Cronograma'],['inbox','Caixa de entrada'],['team','Equipe']]:[['home','Início'],['approvals','Aprovações'],['calendar','Cronograma']];
 function shell(body){const n=nav();app.innerHTML='<div class="shell"><aside class="side"><div class="brand"><span class="mark">7</span>Dinamize7OS</div><nav class="nav">'+n.map(x=>'<button data-tab="'+x[0]+'" class="'+(state.tab===x[0]?'on':'')+'">'+x[1]+'</button>').join('')+'</nav><div class="spacer"></div><div class="user"><strong>'+esc(state.profile.full_name||state.user.email)+'</strong>'+(state.agencyMember?'Agência':'Cliente')+'<br><button class="link" id="logout" style="color:#8eb7ff">Sair</button></div></aside><main class="main"><header class="top"><strong>'+(state.client?esc(state.client.name):'Dinamize7OS')+'</strong><span class="badge">'+(state.agencyMember?'Agência':'Cliente')+'</span></header><div class="content">'+body+'</div></main></div>';document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});document.getElementById('logout').onclick=logout}
 async function logout(){try{await api('/auth/v1/logout',{method:'POST'})}catch{}saveSession(null);Object.assign(state,{user:null,agencyMember:null,clientMember:null});render()}
 const head=(t,s,b='')=>'<div class="head"><div><h2>'+t+'</h2><p>'+s+'</p></div>'+b+'</div>';
 const stat=(l,v)=>'<div class="card stat"><span>'+l+'</span><b>'+v+'</b></div>';
-function badge(s){const m={active:['Ativo','ok'],archived:['Arquivado',''],awaiting_client:['Aguardando cliente','wait'],approved:['Aprovado','ok'],changes_requested:['Alteração solicitada','bad'],not_requested:['Não enviado',''],scheduled:['Agendado','ok']},x=m[s]||[s,''];return '<span class="badge '+x[1]+'">'+esc(x[0])+'</span>'}
+function badge(s){const m={active:['Ativo','ok'],archived:['Arquivado',''],pending:['Pendente','wait'],approved:['Aprovado','ok'],rejected:['Recusado','bad'],awaiting_client:['Aguardando cliente','wait'],changes_requested:['Alteração solicitada','bad'],not_requested:['Não enviado',''],scheduled:['Agendado','ok']},x=m[s]||[s,''];return '<span class="badge '+x[1]+'">'+esc(x[0])+'</span>'}
 async function dashboard(){const aid=state.agencyMember.agency_id;const [clients,events,items]=await Promise.all([db.list('clients','select=id&agency_id=eq.'+aid),db.list('calendar_events','select=id&agency_id=eq.'+aid),db.list('content_schedule_items','select=approval_status&agency_id=eq.'+aid)]);shell(head('Visão geral','Operação da agência em tempo real.')+'<div class="grid g4">'+stat('Clientes',clients.length)+stat('Compromissos',events.length)+stat('Aguardando',items.filter(x=>x.approval_status==='awaiting_client').length)+stat('Aprovados',items.filter(x=>x.approval_status==='approved').length)+'</div>')}
 async function clients(){const aid=state.agencyMember.agency_id,r=await db.list('clients','select=*&agency_id=eq.'+aid+'&order=name.asc');shell(head('Clientes','Empresas atendidas pela agência.','<button class="btn blue" id="add">+ Novo cliente</button>')+'<div class="card"><div class="tbl"><table><thead><tr><th>Cliente</th><th>E-mail</th><th>Telefone</th><th>Status</th><th>Ações</th></tr></thead><tbody>'+(r.length?r.map(c=>'<tr><td><b>'+esc(c.name)+'</b></td><td>'+esc(c.email||'—')+'</td><td>'+esc(c.phone||'—')+'</td><td>'+badge(c.status)+'</td><td><div class="actions"><button class="btn blue invite-client" data-id="'+c.id+'">Criar convite</button><button class="btn soft edit-client" data-id="'+c.id+'">Editar</button><button class="btn ghost archive-client" data-id="'+c.id+'">'+(c.status==='archived'?'Ativar':'Arquivar')+'</button><button class="btn ghost delete-client" data-id="'+c.id+'">Excluir</button></div></td></tr>').join(''):'<tr><td colspan="5" class="empty">Nenhum cliente</td></tr>')+'</tbody></table></div></div>');
 
@@ -133,6 +149,50 @@ document.getElementById('add').onclick=()=>{if(!cs.length)return toast('Cadastre
 document.querySelectorAll('.edit-content').forEach(b=>b.onclick=()=>{const x=items.find(v=>v.id===b.dataset.id);const dt=x.scheduled_at?new Date(new Date(x.scheduled_at).getTime()-new Date(x.scheduled_at).getTimezoneOffset()*60000).toISOString().slice(0,16):'';formModal('Editar conteúdo','<div class="field"><label>Título</label><input name="title" value="'+esc(x.title)+'" required></div><div class="field"><label>Cliente</label><select name="client_id" required>'+cs.map(c=>'<option value="'+c.id+'" '+(c.id===x.client_id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select></div><div class="field"><label>Data</label><input name="scheduled_at" type="datetime-local" value="'+dt+'" required></div><div class="field"><label>Legenda / briefing</label><textarea name="caption">'+esc(x.caption||'')+'</textarea></div>',async d=>{await db.update('content_schedule_items','id=eq.'+x.id,{title:d.title,client_id:d.client_id,scheduled_at:d.scheduled_at,caption:d.caption||null});toast('Conteúdo atualizado.');content()})});
 document.querySelectorAll('.delete-content').forEach(b=>b.onclick=async()=>{const x=items.find(v=>v.id===b.dataset.id);if(!confirm('Excluir o conteúdo "'+x.title+'"?'))return;try{await db.remove('content_schedule_items','id=eq.'+x.id);toast('Conteúdo excluído.');content()}catch(err){toast(err.message)}})
 }
+async function inbox(){
+  const aid=state.agencyMember.agency_id;
+  const [requests,clientsList]=await Promise.all([
+    db.list('workspace_access_requests','select=*&agency_id=eq.'+aid+'&order=requested_at.desc'),
+    db.list('clients','select=id,name&agency_id=eq.'+aid)
+  ]);
+  const clientNames=Object.fromEntries(clientsList.map(c=>[c.id,c.name]));
+  shell(
+    head('Caixa de entrada','Solicitações de acesso enviadas pelos convites.')+
+    '<div class="items">'+(
+      requests.length
+      ? requests.map(r=>'<div class="card item"><div><h3>'+esc(r.full_name||r.email)+'</h3><div class="mut">'+esc(r.email)+' · '+(r.invite_type==='client'?('Cliente: '+esc(clientNames[r.client_id]||'—')):'Equipe')+'</div><div style="margin-top:8px">'+badge(r.status)+'</div></div><div class="actions">'+(r.status==='pending'?'<button class="btn blue approve-access" data-id="'+r.id+'">Aprovar</button><button class="btn ghost reject-access" data-id="'+r.id+'">Recusar</button>':'')+'</div></div>').join('')
+      : '<div class="card empty">Nenhuma solicitação de acesso.</div>'
+    )+'</div>'
+  );
+
+  document.querySelectorAll('.approve-access').forEach(b=>b.onclick=async()=>{
+    try{
+      const out=await api('/functions/v1/review-access-request',{method:'POST',body:{request_id:b.dataset.id,decision:'approve'}});
+      if(out.existing_user){
+        inviteLinkModal('Acesso aprovado','', 'Esse e-mail já tinha uma conta no Dinamize7OS. O acesso foi liberado e a pessoa deve entrar com a senha que já usa.');
+        const input=document.querySelector('.copybox'); if(input) input.remove();
+      }else{
+        const w=document.createElement('div');
+        w.className='modalbg';
+        w.innerHTML='<div class="modal"><div class="mh"><b>Acesso aprovado</b><button class="btn ghost x">×</button></div><div class="mb"><div class="notice">A conta foi criada. Esta senha temporária é exibida somente agora e não fica salva no sistema.</div><div class="field"><label>E-mail</label><input value="'+esc(out.email)+'" readonly></div><div class="field"><label>Senha temporária</label><div class="copybox"><input id="temp-pass" value="'+esc(out.temporary_password)+'" readonly><button class="btn blue" id="copy-pass">Copiar</button></div></div><p class="mut" style="font-size:12px">Envie a senha para a pessoa por um canal seguro. Depois ela poderá alterar ou recuperar a senha.</p></div><div class="mf"><button class="btn ghost x">Fechar</button></div></div>';
+        document.body.appendChild(w);
+        w.querySelectorAll('.x').forEach(x=>x.onclick=()=>w.remove());
+        w.querySelector('#copy-pass').onclick=async()=>{try{await navigator.clipboard.writeText(out.temporary_password);toast('Senha copiada.')}catch{const i=w.querySelector('#temp-pass');i.select();document.execCommand('copy');toast('Senha copiada.')}};
+      }
+      inbox();
+    }catch(err){toast(err.message)}
+  });
+
+  document.querySelectorAll('.reject-access').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Recusar esta solicitação de acesso?')) return;
+    try{
+      await api('/functions/v1/review-access-request',{method:'POST',body:{request_id:b.dataset.id,decision:'reject'}});
+      toast('Solicitação recusada.');
+      inbox();
+    }catch(err){toast(err.message)}
+  });
+}
+
 async function team(){const aid=state.agencyMember.agency_id,[am,cm,cs]=await Promise.all([db.list('agency_members','select=*&agency_id=eq.'+aid),db.list('client_members','select=*&agency_id=eq.'+aid),db.list('clients','select=id,name&agency_id=eq.'+aid)]);shell(head('Equipe e acessos','Crie e gerencie logins da equipe e dos clientes.','<div class="actions"><button class="btn ghost" id="invite-team">Criar link de convite</button><button class="btn blue" id="add">+ Criar acesso</button></div>')+'<div class="grid g2"><div class="card"><h3>Equipe</h3>'+(am.length?am.map(x=>'<div class="item"><p>'+esc(x.role)+' '+badge(x.status)+'</p><div class="actions"><button class="btn soft edit-member" data-id="'+x.id+'">Editar</button>'+(x.user_id!==state.user.id?'<button class="btn ghost remove-member" data-id="'+x.id+'">Remover</button>':'')+'</div></div>').join(''):'<p class="mut">Nenhum membro.</p>')+'</div><div class="card"><h3>Clientes com acesso</h3>'+(cm.length?cm.map(x=>'<div class="item"><p>'+esc(cs.find(c=>c.id===x.client_id)?.name||'Cliente')+' · '+esc(x.role)+'</p><div class="actions"><button class="btn soft edit-client-member" data-id="'+x.id+'">Editar</button><button class="btn ghost remove-client-member" data-id="'+x.id+'">Remover</button></div></div>').join(''):'<p class="mut">Nenhum acesso criado.</p>')+'</div></div>');
 
 document.getElementById('invite-team').onclick=()=>createInviteModal({invite_type:'agency'});
@@ -147,7 +207,7 @@ async function clientHome(){const cid=state.clientMember.client_id,r=await db.li
 async function approvals(){const cid=state.clientMember.client_id,r=await db.list('content_schedule_items','select=*&client_id=eq.'+cid+'&approval_status=neq.not_requested&order=scheduled_at.asc');shell(head('Aprovações','Revise antes da publicação.')+'<div class="items">'+(r.length?r.map(x=>'<div class="card item"><div><h3>'+esc(x.title)+'</h3><p class="mut">'+esc(x.caption||'Sem legenda')+'</p>'+badge(x.approval_status)+'</div><div class="actions">'+(x.approval_status==='awaiting_client'?'<button class="btn blue approve" data-id="'+x.id+'">Aprovar</button><button class="btn ghost changes" data-id="'+x.id+'">Pedir alteração</button>':'')+'</div></div>').join(''):'<div class="card empty">Nada para revisar</div>')+'</div>');document.querySelectorAll('.approve').forEach(b=>b.onclick=async()=>{await db.insert('content_approvals',{agency_id:state.clientMember.agency_id,content_item_id:b.dataset.id,client_id:cid,user_id:state.user.id,action:'approved',comment:'Aprovado pelo cliente'});approvals()});document.querySelectorAll('.changes').forEach(b=>b.onclick=()=>formModal('Solicitar alteração','<div class="field"><label>O que deseja alterar?</label><textarea name="comment" required></textarea></div>',async d=>{await db.insert('content_approvals',{agency_id:state.clientMember.agency_id,content_item_id:b.dataset.id,client_id:cid,user_id:state.user.id,action:'changes_requested',comment:d.comment});approvals()}))}
 async function clientCalendar(){const cid=state.clientMember.client_id,r=await db.list('content_schedule_items','select=*&client_id=eq.'+cid+'&order=scheduled_at.asc');shell(head('Cronograma','Datas de conteúdo planejadas pela agência.')+'<div class="card"><div class="tbl"><table><thead><tr><th>Data</th><th>Conteúdo</th><th>Status</th></tr></thead><tbody>'+(r.length?r.map(x=>'<tr><td>'+(x.scheduled_at?new Date(x.scheduled_at).toLocaleString('pt-BR'):'—')+'</td><td><b>'+esc(x.title)+'</b></td><td>'+badge(x.approval_status)+'</td></tr>').join(''):'<tr><td colspan="3" class="empty">Cronograma vazio</td></tr>')+'</tbody></table></div></div>')}
 function formModal(title,fields,cb){const w=document.createElement('div');w.className='modalbg';w.innerHTML='<div class="modal"><div class="mh"><b>'+esc(title)+'</b><button class="btn ghost x">×</button></div><form><div class="mb">'+fields+'</div><div class="mf"><button type="button" class="btn ghost x">Cancelar</button><button class="btn blue">Salvar</button></div></form></div>';document.body.appendChild(w);w.querySelectorAll('.x').forEach(x=>x.onclick=()=>w.remove());w.querySelector('form').onsubmit=async ev=>{ev.preventDefault();const d=Object.fromEntries(new FormData(ev.target));try{await cb(d);w.remove()}catch(err){toast(err.message)}}}
-async function render(){if(!state.session)return authView();if(!state.user){try{await loadIdentity()}catch{saveSession(null);return authView()}}if(!state.agencyMember&&!state.clientMember)return setup();if(state.agencyMember){if(!['dashboard','clients','agenda','content','team'].includes(state.tab))state.tab='dashboard';return ({dashboard,clients,agenda,content,team})[state.tab]()}if(!['home','approvals','calendar'].includes(state.tab))state.tab='home';return ({home:clientHome,approvals,calendar:clientCalendar})[state.tab]()}
+async function render(){if(!state.session)return authView();if(!state.user){try{await loadIdentity()}catch{saveSession(null);return authView()}}if(!state.agencyMember&&!state.clientMember)return setup();if(state.agencyMember){if(!['dashboard','clients','agenda','content','inbox','team'].includes(state.tab))state.tab='dashboard';return ({dashboard,clients,agenda,content,inbox,team})[state.tab]()}if(!['home','approvals','calendar'].includes(state.tab))state.tab='home';return ({home:clientHome,approvals,calendar:clientCalendar})[state.tab]()}
 try{state.session=JSON.parse(localStorage.getItem(STORE)||'null')}catch{}
 if(inviteToken)inviteLanding(inviteToken);else render();
 </script>
