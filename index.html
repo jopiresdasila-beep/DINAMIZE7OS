@@ -354,16 +354,145 @@ async function inbox(){
   });
 }
 
-async function team(){const aid=state.agencyMember.agency_id,[am,cm,cs]=await Promise.all([db.list('agency_members','select=*&agency_id=eq.'+aid),db.list('client_members','select=*&agency_id=eq.'+aid),db.list('clients','select=id,name&agency_id=eq.'+aid)]);shell(head('Equipe e acessos','Crie e gerencie logins da equipe e dos clientes.','<div class="actions"><button class="btn ghost" id="invite-team">Criar link de convite</button><button class="btn blue" id="add">+ Criar acesso</button></div>')+'<div class="grid g2"><div class="card"><h3>Equipe</h3>'+(am.length?am.map(x=>'<div class="item"><p>'+esc(x.role)+' '+badge(x.status)+'</p><div class="actions"><button class="btn soft edit-member" data-id="'+x.id+'">Editar</button>'+(x.user_id!==state.user.id?'<button class="btn ghost remove-member" data-id="'+x.id+'">Remover</button>':'')+'</div></div>').join(''):'<p class="mut">Nenhum membro.</p>')+'</div><div class="card"><h3>Clientes com acesso</h3>'+(cm.length?cm.map(x=>'<div class="item"><p>'+esc(cs.find(c=>c.id===x.client_id)?.name||'Cliente')+' · '+esc(x.role)+'</p><div class="actions"><button class="btn soft edit-client-member" data-id="'+x.id+'">Editar</button><button class="btn ghost remove-client-member" data-id="'+x.id+'">Remover</button></div></div>').join(''):'<p class="mut">Nenhum acesso criado.</p>')+'</div></div>');
+async function team(){
+  const aid=state.agencyMember.agency_id;
+  const [am,cm,cs,invites]=await Promise.all([
+    db.list('agency_members','select=*&agency_id=eq.'+aid),
+    db.list('client_members','select=*&agency_id=eq.'+aid),
+    db.list('clients','select=id,name&agency_id=eq.'+aid),
+    db.list('workspace_invites','select=*&agency_id=eq.'+aid+'&order=created_at.desc')
+  ]);
 
-document.getElementById('invite-team').onclick=()=>createInviteModal({invite_type:'agency'});
-document.getElementById('add').onclick=()=>formModal('Criar acesso','<div class="field"><label>Tipo</label><select name="account_type"><option value="agency">Equipe</option><option value="client">Cliente</option></select></div><div class="field"><label>Nome</label><input name="full_name" required></div><div class="field"><label>E-mail</label><input name="email" type="email" required></div><div class="field"><label>Senha inicial</label><input name="password" type="password" minlength="8" required></div><div class="field"><label>Perfil</label><select name="role"><option value="member">Equipe</option><option value="admin">Administrador</option><option value="manager">Gerente</option><option value="client_approver">Aprovador do cliente</option><option value="client_viewer">Cliente visualização</option></select></div><div class="field"><label>Cliente (se acesso de cliente)</label><select name="client_id"><option value="">Selecione</option>'+cs.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join('')+'</select></div>',async d=>{await api('/functions/v1/create-user',{method:'POST',body:{agency_id:aid,...d,client_id:d.client_id||null}});team()});
+  shell(
+    head(
+      'Equipe e acessos',
+      'Tudo que for criado aqui pode ser editado ou removido depois.',
+      '<div class="actions"><button class="btn ghost" id="invite-team">Criar link de convite</button><button class="btn blue" id="add">+ Criar acesso</button></div>'
+    )+
+    '<div class="grid g2">'+
+      '<div class="card"><h3>Equipe</h3>'+
+        (am.length?am.map(x=>
+          '<div class="item"><p>'+esc(x.role)+' '+badge(x.status)+'</p><div class="actions"><button class="btn soft edit-member" data-id="'+x.id+'">Editar</button>'+(x.user_id!==state.user.id?'<button class="btn ghost remove-member" data-id="'+x.id+'">Remover</button>':'')+'</div></div>'
+        ).join(''):'<p class="mut">Nenhum membro.</p>')+
+      '</div>'+
+      '<div class="card"><h3>Clientes com acesso</h3>'+
+        (cm.length?cm.map(x=>
+          '<div class="item"><p>'+esc(cs.find(c=>c.id===x.client_id)?.name||'Cliente')+' · '+esc(x.role)+'</p><div class="actions"><button class="btn soft edit-client-member" data-id="'+x.id+'">Editar</button><button class="btn ghost remove-client-member" data-id="'+x.id+'">Remover</button></div></div>'
+        ).join(''):'<p class="mut">Nenhum acesso criado.</p>')+
+      '</div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px"><h3>Convites criados</h3><p class="mut">Convites pendentes podem ser editados, cancelados ou excluídos.</p>'+
+      (invites.length
+        ? '<div class="tbl"><table><thead><tr><th>Tipo</th><th>Destino</th><th>Perfil</th><th>Status</th><th>Validade</th><th>Ações</th></tr></thead><tbody>'+
+          invites.map(x=>{
+            const target=x.invite_type==='client'?(cs.find(c=>c.id===x.client_id)?.name||'Cliente'):'Equipe';
+            return '<tr><td>'+(x.invite_type==='client'?'Cliente':'Equipe')+'</td><td>'+esc(target)+(x.restricted_email?' · '+esc(x.restricted_email):'')+'</td><td>'+esc(x.role)+'</td><td>'+badge(x.status)+'</td><td>'+new Date(x.expires_at).toLocaleDateString('pt-BR')+'</td><td><div class="actions">'+(x.status==='pending'?'<button class="btn soft edit-invite" data-id="'+x.id+'">Editar</button><button class="btn ghost cancel-invite" data-id="'+x.id+'">Cancelar</button>':'')+'<button class="btn ghost delete-invite" data-id="'+x.id+'">Excluir</button></div></td></tr>';
+          }).join('')+
+          '</tbody></table></div>'
+        : '<p class="mut">Nenhum convite criado.</p>')+
+    '</div>'
+  );
 
-document.querySelectorAll('.edit-member').forEach(b=>b.onclick=()=>{const x=am.find(v=>v.id===b.dataset.id);formModal('Editar acesso da equipe','<div class="field"><label>Função</label><select name="role"><option value="owner" '+(x.role==='owner'?'selected':'')+'>Dono</option><option value="admin" '+(x.role==='admin'?'selected':'')+'>Administrador</option><option value="manager" '+(x.role==='manager'?'selected':'')+'>Gerente</option><option value="member" '+(x.role==='member'?'selected':'')+'>Membro</option></select></div><div class="field"><label>Status</label><select name="status"><option value="active" '+(x.status==='active'?'selected':'')+'>Ativo</option><option value="disabled" '+(x.status==='disabled'?'selected':'')+'>Desativado</option></select></div>',async d=>{await db.update('agency_members','id=eq.'+x.id,{role:d.role,status:d.status});toast('Acesso atualizado.');team()})});
-document.querySelectorAll('.remove-member').forEach(b=>b.onclick=async()=>{if(!confirm('Remover esta pessoa da empresa?'))return;await db.remove('agency_members','id=eq.'+b.dataset.id);toast('Membro removido.');team()});
-document.querySelectorAll('.edit-client-member').forEach(b=>b.onclick=()=>{const x=cm.find(v=>v.id===b.dataset.id);formModal('Editar acesso do cliente','<div class="field"><label>Perfil</label><select name="role"><option value="client_admin" '+(x.role==='client_admin'?'selected':'')+'>Administrador do cliente</option><option value="client_approver" '+(x.role==='client_approver'?'selected':'')+'>Aprovador</option><option value="client_viewer" '+(x.role==='client_viewer'?'selected':'')+'>Visualização</option></select></div><div class="field"><label>Status</label><select name="status"><option value="active" '+(x.status==='active'?'selected':'')+'>Ativo</option><option value="disabled" '+(x.status==='disabled'?'selected':'')+'>Desativado</option></select></div>',async d=>{await db.update('client_members','id=eq.'+x.id,{role:d.role,status:d.status});toast('Acesso atualizado.');team()})});
-document.querySelectorAll('.remove-client-member').forEach(b=>b.onclick=async()=>{if(!confirm('Remover este acesso do cliente?'))return;await db.remove('client_members','id=eq.'+b.dataset.id);toast('Acesso removido.');team()})
+  document.getElementById('invite-team').onclick=()=>createInviteModal({invite_type:'agency'});
+
+  document.getElementById('add').onclick=()=>formModal(
+    'Criar acesso',
+    '<div class="field"><label>Tipo</label><select name="account_type"><option value="agency">Equipe</option><option value="client">Cliente</option></select></div>'+
+    '<div class="field"><label>Nome</label><input name="full_name" required></div>'+
+    '<div class="field"><label>E-mail</label><input name="email" type="email" required></div>'+
+    '<div class="field"><label>Senha inicial</label><input name="password" type="password" minlength="8" required></div>'+
+    '<div class="field"><label>Perfil</label><select name="role"><option value="member">Equipe</option><option value="admin">Administrador</option><option value="manager">Gerente</option><option value="client_approver">Aprovador do cliente</option><option value="client_viewer">Cliente visualização</option></select></div>'+
+    '<div class="field"><label>Cliente (se acesso de cliente)</label><select name="client_id"><option value="">Selecione</option>'+cs.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join('')+'</select></div>',
+    async d=>{
+      await api('/functions/v1/create-user',{method:'POST',body:{agency_id:aid,...d,client_id:d.client_id||null}});
+      team();
+    }
+  );
+
+  document.querySelectorAll('.edit-member').forEach(b=>b.onclick=()=>{
+    const x=am.find(v=>v.id===b.dataset.id);
+    formModal(
+      'Editar acesso da equipe',
+      '<div class="field"><label>Função</label><select name="role"><option value="owner" '+(x.role==='owner'?'selected':'')+'>Dono</option><option value="admin" '+(x.role==='admin'?'selected':'')+'>Administrador</option><option value="manager" '+(x.role==='manager'?'selected':'')+'>Gerente</option><option value="member" '+(x.role==='member'?'selected':'')+'>Membro</option></select></div>'+
+      '<div class="field"><label>Status</label><select name="status"><option value="active" '+(x.status==='active'?'selected':'')+'>Ativo</option><option value="disabled" '+(x.status==='disabled'?'selected':'')+'>Desativado</option></select></div>',
+      async d=>{
+        await db.update('agency_members','id=eq.'+x.id,{role:d.role,status:d.status});
+        toast('Acesso atualizado.');
+        team();
+      }
+    );
+  });
+
+  document.querySelectorAll('.remove-member').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Remover esta pessoa da empresa?'))return;
+    await db.remove('agency_members','id=eq.'+b.dataset.id);
+    toast('Membro removido.');
+    team();
+  });
+
+  document.querySelectorAll('.edit-client-member').forEach(b=>b.onclick=()=>{
+    const x=cm.find(v=>v.id===b.dataset.id);
+    formModal(
+      'Editar acesso do cliente',
+      '<div class="field"><label>Perfil</label><select name="role"><option value="client_admin" '+(x.role==='client_admin'?'selected':'')+'>Administrador do cliente</option><option value="client_approver" '+(x.role==='client_approver'?'selected':'')+'>Aprovador</option><option value="client_viewer" '+(x.role==='client_viewer'?'selected':'')+'>Visualização</option></select></div>'+
+      '<div class="field"><label>Status</label><select name="status"><option value="active" '+(x.status==='active'?'selected':'')+'>Ativo</option><option value="disabled" '+(x.status==='disabled'?'selected':'')+'>Desativado</option></select></div>',
+      async d=>{
+        await db.update('client_members','id=eq.'+x.id,{role:d.role,status:d.status});
+        toast('Acesso atualizado.');
+        team();
+      }
+    );
+  });
+
+  document.querySelectorAll('.remove-client-member').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Remover este acesso do cliente?'))return;
+    await db.remove('client_members','id=eq.'+b.dataset.id);
+    toast('Acesso removido.');
+    team();
+  });
+
+  document.querySelectorAll('.edit-invite').forEach(b=>b.onclick=()=>{
+    const x=invites.find(v=>v.id===b.dataset.id);
+    const isClient=x.invite_type==='client';
+    const dtValue=x.expires_at?new Date(new Date(x.expires_at).getTime()-new Date(x.expires_at).getTimezoneOffset()*60000).toISOString().slice(0,16):'';
+    const roleOptions=isClient
+      ? '<option value="client_admin" '+(x.role==='client_admin'?'selected':'')+'>Administrador do cliente</option><option value="client_approver" '+(x.role==='client_approver'?'selected':'')+'>Aprovador</option><option value="client_viewer" '+(x.role==='client_viewer'?'selected':'')+'>Visualização</option>'
+      : '<option value="member" '+(x.role==='member'?'selected':'')+'>Membro</option><option value="manager" '+(x.role==='manager'?'selected':'')+'>Gerente</option><option value="admin" '+(x.role==='admin'?'selected':'')+'>Administrador</option>'+(state.agencyMember.role==='owner'?'<option value="owner" '+(x.role==='owner'?'selected':'')+'>Co-proprietário</option>':'');
+    formModal(
+      'Editar convite',
+      '<div class="field"><label>Nome</label><input name="full_name" value="'+esc(x.full_name||'')+'"></div>'+
+      '<div class="field"><label>E-mail restrito</label><input name="restricted_email" type="email" value="'+esc(x.restricted_email||'')+'"></div>'+
+      '<div class="field"><label>Perfil</label><select name="role">'+roleOptions+'</select></div>'+
+      '<div class="field"><label>Expira em</label><input name="expires_at" type="datetime-local" value="'+dtValue+'" required></div>',
+      async d=>{
+        await db.update('workspace_invites','id=eq.'+x.id,{
+          full_name:d.full_name||null,
+          restricted_email:d.restricted_email||null,
+          role:d.role,
+          expires_at:new Date(d.expires_at).toISOString(),
+          updated_at:new Date().toISOString()
+        });
+        toast('Convite atualizado.');
+        team();
+      }
+    );
+  });
+
+  document.querySelectorAll('.cancel-invite').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Cancelar este convite? O link deixará de funcionar.'))return;
+    await db.update('workspace_invites','id=eq.'+b.dataset.id,{status:'cancelled',updated_at:new Date().toISOString()});
+    toast('Convite cancelado.');
+    team();
+  });
+
+  document.querySelectorAll('.delete-invite').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Excluir este convite do sistema?'))return;
+    await db.remove('workspace_invites','id=eq.'+b.dataset.id);
+    toast('Convite excluído.');
+    team();
+  });
 }
+
 async function clientHome(){const cid=state.clientMember.client_id,r=await db.list('content_schedule_items','select=approval_status&client_id=eq.'+cid),p=r.filter(x=>x.approval_status==='awaiting_client');shell(head('Olá, '+esc((state.profile.full_name||'cliente').split(' ')[0]),p.length?'Você tem '+p.length+' conteúdo(s) para revisar.':'Nenhuma aprovação pendente.')+'<div class="grid g2">'+stat('Aguardando',p.length)+stat('Aprovados',r.filter(x=>x.approval_status==='approved').length)+'</div>')}
 async function approvals(){const cid=state.clientMember.client_id,r=await db.list('content_schedule_items','select=*&client_id=eq.'+cid+'&approval_status=neq.not_requested&order=scheduled_at.asc');shell(head('Aprovações','Revise antes da publicação.')+'<div class="items">'+(r.length?r.map(x=>'<div class="card item"><div><h3>'+esc(x.title)+'</h3><p class="mut">'+esc(x.caption||'Sem legenda')+'</p>'+badge(x.approval_status)+'</div><div class="actions">'+(x.approval_status==='awaiting_client'?'<button class="btn blue approve" data-id="'+x.id+'">Aprovar</button><button class="btn ghost changes" data-id="'+x.id+'">Pedir alteração</button>':'')+'</div></div>').join(''):'<div class="card empty">Nada para revisar</div>')+'</div>');document.querySelectorAll('.approve').forEach(b=>b.onclick=async()=>{await db.insert('content_approvals',{agency_id:state.clientMember.agency_id,content_item_id:b.dataset.id,client_id:cid,user_id:state.user.id,action:'approved',comment:'Aprovado pelo cliente'});approvals()});document.querySelectorAll('.changes').forEach(b=>b.onclick=()=>formModal('Solicitar alteração','<div class="field"><label>O que deseja alterar?</label><textarea name="comment" required></textarea></div>',async d=>{await db.insert('content_approvals',{agency_id:state.clientMember.agency_id,content_item_id:b.dataset.id,client_id:cid,user_id:state.user.id,action:'changes_requested',comment:d.comment});approvals()}))}
 async function clientCalendar(){const cid=state.clientMember.client_id,r=await db.list('content_schedule_items','select=*&client_id=eq.'+cid+'&order=scheduled_at.asc');shell(head('Cronograma','Datas de conteúdo planejadas pela agência.')+'<div class="card"><div class="tbl"><table><thead><tr><th>Data</th><th>Conteúdo</th><th>Status</th></tr></thead><tbody>'+(r.length?r.map(x=>'<tr><td>'+(x.scheduled_at?new Date(x.scheduled_at).toLocaleString('pt-BR'):'—')+'</td><td><b>'+esc(x.title)+'</b></td><td>'+badge(x.approval_status)+'</td></tr>').join(''):'<tr><td colspan="3" class="empty">Cronograma vazio</td></tr>')+'</tbody></table></div></div>')}
