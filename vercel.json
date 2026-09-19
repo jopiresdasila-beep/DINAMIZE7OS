@@ -1,1 +1,7 @@
-{\n  \"cleanUrls\": true,\n  \"trailingSlash\": false\n}\n
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/convite/:token", "destination": "/" }
+  ]
+}
