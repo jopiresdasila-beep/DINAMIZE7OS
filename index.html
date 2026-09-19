@@ -141,14 +141,175 @@ document.getElementById('add').onclick=async()=>{const cs=await db.list('clients
 document.querySelectorAll('.edit-event').forEach(b=>b.onclick=async()=>{const x=r.find(v=>v.id===b.dataset.id),cs=await db.list('clients','select=id,name&agency_id=eq.'+aid+'&order=name.asc');const dt=x.starts_at?new Date(new Date(x.starts_at).getTime()-new Date(x.starts_at).getTimezoneOffset()*60000).toISOString().slice(0,16):'';formModal('Editar evento','<div class="field"><label>Título</label><input name="title" value="'+esc(x.title)+'" required></div><div class="field"><label>Cliente</label><select name="client_id"><option value="">Interno</option>'+cs.map(c=>'<option value="'+c.id+'" '+(c.id===x.client_id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select></div><div class="field"><label>Tipo</label><select name="event_type"><option value="meeting" '+(x.event_type==='meeting'?'selected':'')+'>Reunião</option><option value="deadline" '+(x.event_type==='deadline'?'selected':'')+'>Prazo</option><option value="publication" '+(x.event_type==='publication'?'selected':'')+'>Publicação</option></select></div><div class="field"><label>Data e hora</label><input name="starts_at" type="datetime-local" value="'+dt+'" required></div>',async d=>{await db.update('calendar_events','id=eq.'+x.id,{title:d.title,client_id:d.client_id||null,event_type:d.event_type,starts_at:d.starts_at});toast('Evento atualizado.');agenda()})});
 document.querySelectorAll('.delete-event').forEach(b=>b.onclick=async()=>{const x=r.find(v=>v.id===b.dataset.id);if(!confirm('Excluir o evento "'+x.title+'"?'))return;await db.remove('calendar_events','id=eq.'+x.id);toast('Evento excluído.');agenda()})
 }
-async function content(){const aid=state.agencyMember.agency_id,[items,cs]=await Promise.all([db.list('content_schedule_items','select=*&agency_id=eq.'+aid+'&order=scheduled_at.asc'),db.list('clients','select=id,name&agency_id=eq.'+aid+'&order=name.asc')]);const names=Object.fromEntries(cs.map(c=>[c.id,c.name]));shell(head('Cronograma','Planejamento com aprovação do cliente.','<button class="btn blue" id="add">+ Novo conteúdo</button>')+'<div class="items">'+(items.length?items.map(x=>'<div class="card item"><div><h3>'+esc(x.title)+'</h3><div class="mut">'+esc(names[x.client_id]||'')+' · '+(x.scheduled_at?new Date(x.scheduled_at).toLocaleString('pt-BR'):'Sem data')+'</div><div style="margin-top:8px">'+badge(x.approval_status)+'</div></div><div class="actions"><button class="btn soft edit-content" data-id="'+x.id+'">Editar</button>'+((x.approval_status==='not_requested'||x.approval_status==='changes_requested')?'<button class="btn soft send" data-id="'+x.id+'">Enviar aprovação</button>':'')+'<button class="btn ghost delete-content" data-id="'+x.id+'">Excluir</button></div></div>').join(''):'<div class="card empty">Cronograma vazio</div>')+'</div>');
+async function content(){
+  const aid=state.agencyMember.agency_id;
+  const [items,cs]=await Promise.all([
+    db.list('content_schedule_items','select=*&agency_id=eq.'+aid+'&order=scheduled_at.asc'),
+    db.list('clients','select=id,name&agency_id=eq.'+aid+'&order=name.asc')
+  ]);
+  const names=Object.fromEntries(cs.map(c=>[c.id,c.name]));
+  shell(
+    head(
+      'Cronograma',
+      'Planejamento rápido: gere uma semana pronta e só ajuste se quiser.',
+      '<div class="actions"><button class="btn soft" id="auto-week">⚡ Semana automática</button><button class="btn blue" id="add">+ Novo conteúdo</button></div>'
+    )+
+    '<div class="notice">Modo preguiçoso: escolha o cliente e a segunda-feira. O sistema cria 3 conteúdos prontos. Tudo pode ser editado ou excluído depois.</div>'+
+    '<div class="items">'+(
+      items.length
+      ? items.map(x=>
+        '<div class="card item"><div><h3>'+esc(x.title)+'</h3><div class="mut">'+esc(names[x.client_id]||'')+' · '+(x.scheduled_at?new Date(x.scheduled_at).toLocaleString('pt-BR'):'Sem data')+'</div><div style="margin-top:8px">'+badge(x.approval_status)+'</div></div><div class="actions"><button class="btn soft edit-content" data-id="'+x.id+'">Editar</button>'+((x.approval_status==='not_requested'||x.approval_status==='changes_requested')?'<button class="btn soft send" data-id="'+x.id+'">Enviar aprovação</button>':'')+'<button class="btn ghost delete-content" data-id="'+x.id+'">Excluir</button></div></div>'
+      ).join('')
+      : '<div class="card empty">Cronograma vazio</div>'
+    )+'</div>'
+  );
 
-document.querySelectorAll('.send').forEach(b=>b.onclick=async()=>{await db.update('content_schedule_items','id=eq.'+b.dataset.id,{status:'awaiting_client',approval_status:'awaiting_client',approval_requested_at:new Date().toISOString()});content()});
-document.getElementById('add').onclick=()=>{if(!cs.length)return toast('Cadastre um cliente primeiro.');formModal('Novo conteúdo','<div class="field"><label>Título</label><input name="title" required></div><div class="field"><label>Cliente</label><select name="client_id" required>'+cs.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join('')+'</select></div><div class="field"><label>Data</label><input name="scheduled_at" type="datetime-local" required></div><div class="field"><label>Legenda / briefing</label><textarea name="caption"></textarea></div>',async d=>{let sc=await db.list('content_schedules','select=*&agency_id=eq.'+aid+'&client_id=eq.'+d.client_id+'&status=eq.active&limit=1');if(!sc[0]){await db.insert('content_schedules',{agency_id:aid,client_id:d.client_id,name:'Cronograma',status:'active',created_by:state.user.id});sc=await db.list('content_schedules','select=*&agency_id=eq.'+aid+'&client_id=eq.'+d.client_id+'&status=eq.active&limit=1')}await db.insert('content_schedule_items',{agency_id:aid,schedule_id:sc[0].id,client_id:d.client_id,title:d.title,scheduled_at:d.scheduled_at,caption:d.caption||null,status:'draft',approval_status:'not_requested',created_by:state.user.id});content()})};
+  async function getSchedule(clientId){
+    let sc=await db.list('content_schedules','select=*&agency_id=eq.'+aid+'&client_id=eq.'+clientId+'&status=eq.active&limit=1');
+    if(!sc[0]){
+      await db.insert('content_schedules',{
+        agency_id:aid,
+        client_id:clientId,
+        name:'Cronograma automático',
+        status:'active',
+        created_by:state.user.id
+      });
+      sc=await db.list('content_schedules','select=*&agency_id=eq.'+aid+'&client_id=eq.'+clientId+'&status=eq.active&limit=1');
+    }
+    return sc[0];
+  }
 
-document.querySelectorAll('.edit-content').forEach(b=>b.onclick=()=>{const x=items.find(v=>v.id===b.dataset.id);const dt=x.scheduled_at?new Date(new Date(x.scheduled_at).getTime()-new Date(x.scheduled_at).getTimezoneOffset()*60000).toISOString().slice(0,16):'';formModal('Editar conteúdo','<div class="field"><label>Título</label><input name="title" value="'+esc(x.title)+'" required></div><div class="field"><label>Cliente</label><select name="client_id" required>'+cs.map(c=>'<option value="'+c.id+'" '+(c.id===x.client_id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select></div><div class="field"><label>Data</label><input name="scheduled_at" type="datetime-local" value="'+dt+'" required></div><div class="field"><label>Legenda / briefing</label><textarea name="caption">'+esc(x.caption||'')+'</textarea></div>',async d=>{await db.update('content_schedule_items','id=eq.'+x.id,{title:d.title,client_id:d.client_id,scheduled_at:d.scheduled_at,caption:d.caption||null});toast('Conteúdo atualizado.');content()})});
-document.querySelectorAll('.delete-content').forEach(b=>b.onclick=async()=>{const x=items.find(v=>v.id===b.dataset.id);if(!confirm('Excluir o conteúdo "'+x.title+'"?'))return;try{await db.remove('content_schedule_items','id=eq.'+x.id);toast('Conteúdo excluído.');content()}catch(err){toast(err.message)}})
+  function dt(base,addDays,hour,minute=0){
+    const [y,m,d]=base.split('-').map(Number);
+    const date=new Date(y,m-1,d+addDays,hour,minute,0,0);
+    const p=n=>String(n).padStart(2,'0');
+    return date.getFullYear()+'-'+p(date.getMonth()+1)+'-'+p(date.getDate())+'T'+p(date.getHours())+':'+p(date.getMinutes());
+  }
+
+  document.getElementById('auto-week').onclick=()=>{
+    if(!cs.length)return toast('Cadastre um cliente primeiro.');
+    const now=new Date();
+    const p=n=>String(n).padStart(2,'0');
+    const today=now.getFullYear()+'-'+p(now.getMonth()+1)+'-'+p(now.getDate());
+    formModal(
+      'Gerar semana automática',
+      '<div class="notice">Sem briefing. Sem ficar pensando. O Dinamize7OS cria segunda, quarta e sexta com textos prontos.</div>'+
+      '<div class="field"><label>Cliente</label><select name="client_id" required>'+cs.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Segunda-feira da semana</label><input name="week_start" type="date" value="'+today+'" required></div>',
+      async d=>{
+        const sc=await getSchedule(d.client_id);
+        const presets=[
+          {
+            title:'Comece a semana com uma boa escolha',
+            caption:'Nova semana, novas oportunidades. Confira nosso destaque de hoje e aproveite.',
+            platform:'Instagram',
+            content_type:'post',
+            scheduled_at:dt(d.week_start,0,9,0)
+          },
+          {
+            title:'Dica rápida da semana',
+            caption:'Uma dica simples para facilitar sua rotina. Salve para lembrar depois e compartilhe com quem também vai gostar.',
+            platform:'Instagram',
+            content_type:'carousel',
+            scheduled_at:dt(d.week_start,2,12,0)
+          },
+          {
+            title:'Sextou: escolha seu favorito',
+            caption:'Fim de semana chegando. Qual opção você escolheria? Conta pra gente nos comentários.',
+            platform:'Instagram',
+            content_type:'story',
+            scheduled_at:dt(d.week_start,4,17,30)
+          }
+        ];
+        for(const x of presets){
+          await db.insert('content_schedule_items',{
+            agency_id:aid,
+            schedule_id:sc.id,
+            client_id:d.client_id,
+            title:x.title,
+            caption:x.caption,
+            platform:x.platform,
+            content_type:x.content_type,
+            scheduled_at:x.scheduled_at,
+            status:'draft',
+            approval_status:'not_requested',
+            created_by:state.user.id
+          });
+        }
+        toast('Semana criada. Agora é só aprovar ou editar.');
+        content();
+      }
+    );
+  };
+
+  document.querySelectorAll('.send').forEach(b=>b.onclick=async()=>{
+    await db.update('content_schedule_items','id=eq.'+b.dataset.id,{
+      status:'awaiting_client',
+      approval_status:'awaiting_client',
+      approval_requested_at:new Date().toISOString()
+    });
+    content();
+  });
+
+  document.getElementById('add').onclick=()=>{
+    if(!cs.length)return toast('Cadastre um cliente primeiro.');
+    formModal(
+      'Novo conteúdo',
+      '<div class="field"><label>Título</label><input name="title" required></div>'+
+      '<div class="field"><label>Cliente</label><select name="client_id" required>'+cs.map(c=>'<option value="'+c.id+'">'+esc(c.name)+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Data</label><input name="scheduled_at" type="datetime-local" required></div>'+
+      '<div class="field"><label>Legenda / briefing</label><textarea name="caption"></textarea></div>',
+      async d=>{
+        const sc=await getSchedule(d.client_id);
+        await db.insert('content_schedule_items',{
+          agency_id:aid,
+          schedule_id:sc.id,
+          client_id:d.client_id,
+          title:d.title,
+          scheduled_at:d.scheduled_at,
+          caption:d.caption||null,
+          status:'draft',
+          approval_status:'not_requested',
+          created_by:state.user.id
+        });
+        content();
+      }
+    );
+  };
+
+  document.querySelectorAll('.edit-content').forEach(b=>b.onclick=()=>{
+    const x=items.find(v=>v.id===b.dataset.id);
+    const dtValue=x.scheduled_at?new Date(new Date(x.scheduled_at).getTime()-new Date(x.scheduled_at).getTimezoneOffset()*60000).toISOString().slice(0,16):'';
+    formModal(
+      'Editar conteúdo',
+      '<div class="field"><label>Título</label><input name="title" value="'+esc(x.title)+'" required></div>'+
+      '<div class="field"><label>Cliente</label><select name="client_id" required>'+cs.map(c=>'<option value="'+c.id+'" '+(c.id===x.client_id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Data</label><input name="scheduled_at" type="datetime-local" value="'+dtValue+'" required></div>'+
+      '<div class="field"><label>Legenda / briefing</label><textarea name="caption">'+esc(x.caption||'')+'</textarea></div>',
+      async d=>{
+        await db.update('content_schedule_items','id=eq.'+x.id,{
+          title:d.title,
+          client_id:d.client_id,
+          scheduled_at:d.scheduled_at,
+          caption:d.caption||null
+        });
+        toast('Conteúdo atualizado.');
+        content();
+      }
+    );
+  });
+
+  document.querySelectorAll('.delete-content').forEach(b=>b.onclick=async()=>{
+    const x=items.find(v=>v.id===b.dataset.id);
+    if(!confirm('Excluir o conteúdo "'+x.title+'"?'))return;
+    try{
+      await db.remove('content_schedule_items','id=eq.'+x.id);
+      toast('Conteúdo excluído.');
+      content();
+    }catch(err){toast(err.message)}
+  });
 }
+
 async function inbox(){
   const aid=state.agencyMember.agency_id;
   const [requests,clientsList]=await Promise.all([
